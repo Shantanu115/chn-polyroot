@@ -1,0 +1,17 @@
+# Runtime requirements for the CHN polynomial root-finding study.
+#
+# chn_solvers.py itself depends only on the Python standard library; NumPy and
+# Matplotlib are used by the benchmark harness, the figures and the notebook.
+#
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+
+numpy>=1.24
+matplotlib>=3.7
+
+# Notebook interface (optional -- only needed to run the .ipynb)
+jupyterlab>=4.0
+nbformat>=5.9
+
+# Test runner (optional -- test_chn_solvers.py also runs standalone)
+pytest>=7.4
