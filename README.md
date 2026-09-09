@@ -1,38 +1,32 @@
-# A Conditional Hybrid Newton Method for Low-Degree Polynomials
+# CHN-PolyRoot
 
-Reference implementation and reproducible experiments for the conditional
-hybrid of Newton's method with Kalantari's Robust Newton Method (RNM), compared
-against Yuksel's 2022 interval-splitting solver.
+A conditional hybrid of Newton's method and Kalantari's Robust Newton Method (RNM) for finding **all** roots of a polynomial, benchmarked against Yuksel's (2022) interval-splitting solver.
 
-Take the Newton step whenever it decreases `|p|`; otherwise take a robust step,
-which decreases `|p|` by construction. The modulus is therefore strictly
-decreasing along every orbit, so the iteration **cannot cycle** — unlike
-Newton's method, which can.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## Idea
+
+Take the Newton step whenever it decreases `|p(z)|`; otherwise take an RNM step, which decreases `|p(z)|` by construction. The modulus decreases strictly at every iteration, so — unlike plain Newton — **the iteration cannot cycle**.
 
 ## Results
 
-On 100 random monic real-rooted polynomials per degree, roots drawn from
-`U(-1, 1)` — the setting Yuksel's method is designed for:
+100 random real-rooted polynomials per degree, roots drawn from `U(-1, 1)`. Reproduced by `CHN_polynomial_root_finding.ipynb`.
 
-| | degree 5 | degree 15 | degree 25 |
-|---|---|---|---|
-| CHN-T (this work) | 0.25 ms | 1.79 ms | 4.92 ms |
-| Yuksel (2022) | 0.52 ms | 8.32 ms | 33.11 ms |
-| **speedup** | **2.19×** | **4.69×** | **6.69×** |
-| forward error | 1.1e-15 | 3.8e-12 | 1.5e-08 |
+| Degree | CHN-T | Yuksel | Speedup | Forward error |
+|:------:|------:|-------:|:-------:|:--------------:|
+| 5      | 0.390 ms  | 0.873 ms  | 2.28×  | 1.1e-15 |
+| 15     | 2.602 ms  | 12.490 ms | 4.86×  | 3.8e-12 |
+| 25     | 7.326 ms  | 49.431 ms | 6.62×  | 1.5e-08 |
 
-CHN-T is faster than Yuksel's method at every degree `n >= 4`, matches the
-forward error of the LAPACK companion-matrix eigensolver, and returns all `n`
-roots rather than the real ones alone — on polynomials with complex roots it
-recovers 99.9% of them against Yuksel's 51.5%.
+- Faster than Yuksel's method at every degree `n ≥ 4`, peaking at 6.62× at `n = 25`.
+- Backward stable — forward error tracks the LAPACK companion-matrix eigensolver at every degree.
+- On polynomials with complex roots, Yuksel returns about half the roots by construction; CHN and CHN-T return all of them.
 
-![performance](figures/fig_performance.png)
+<img src="figures/fig_performance.png" alt="Performance comparison" width="600">
 
-On `z^3 - 2z + 2`, where Newton has an attracting 2-cycle, Newton never reaches
-a root from 0.76% of a 420×420 grid of starting points. The hybrid fails
-nowhere.
+On `z³ - 2z + 2`, where Newton has an attracting 2-cycle, plain Newton fails to converge from 0.76% of a 420×420 grid of starting points. CHN-T fails from none of them.
 
-![basins](figures/fig_basins_smale.png)
+<img src="figures/fig_basins_smale.png" alt="Basins of attraction" width="600">
 
 ## Quick start
 
@@ -42,91 +36,59 @@ cd chn-polyroot
 pip install -r requirements.txt
 
 python test_chn_solvers.py     # 11 correctness tests, ~2 min
-python benchmark.py            # main sweep  -> data/benchmark.json
-python experiments.py          # robustness  -> data/robustness.json, basins.npz
-python figures.py              # all figures -> figures/*.pdf, *.png
+python benchmark.py            # timing/accuracy sweep -> data/benchmark.json
+python experiments.py          # robustness & basins    -> data/robustness.json, basins.npz
+python figures.py              # figures                -> figures/*.pdf, *.png
 ```
 
-Or open `CHN_polynomial_root_finding.ipynb`, which walks through the whole
-study and reproduces every number and figure in the paper. It runs top to
-bottom with no manual input; the full run takes about five minutes.
+Or open `CHN_polynomial_root_finding.ipynb`, which reproduces every number and figure above, top to bottom, in about five minutes.
 
-## Using the solver
+## Usage
 
 ```python
 import chn_solvers as chn
 
-coeffs = [1.0, 0.0, -2.0, 2.0]          # z^3 - 2z + 2, descending order
+coeffs = [1.0, 0.0, -2.0, 2.0]   # z^3 - 2z + 2, descending order
 result = chn.solve_all_chn(coeffs, truncated=True)
 
-print(result.roots)                      # all three roots, complex included
-print(result.iterations, result.rnm_steps)
+result.roots        # all 3 roots, complex included
+result.iterations, result.rnm_steps
 ```
-
-| Function | What it does |
-|---|---|
-| `solve_all_chn(coeffs, truncated=True)` | all `n` roots; the recommended entry point |
-| `solve_chn(coeffs, z0)` | a single root from one starting point |
-| `rnm_step(coeffs, z)` | the RNM increment, closed form |
-| `truncated_rnm_step(...)` | adaptive truncated RNM: smallest `m` that descends |
-| `solve_yuksel(coeffs, lo, hi)` | the baseline, real roots in an interval |
-| `solve_newton_deflation(coeffs)` | ablation baseline: Newton, no robust fallback |
-| `kalantari_bound(coeffs)` | the bound `U_2` on the modulus of the roots |
 
 Coefficients are always in **descending** order, matching `numpy.roots`.
 
-## What the method is
-
-For `z` that is not a critical point, RNM is
-
-$$\widehat{N}_p(z) = z - \frac{p(z)\,\overline{p'(z)}}{9\,A(z)^2},
-\qquad A(z) = \max_{0 \le j \le n} \frac{|p^{(j)}(z)|}{j!}.$$
-
-`p·conj(p')` is twice the Wirtinger derivative of `|p|²`, so the step follows
-steepest descent of the modulus; the factor `1/(9A²)` is the step length for
-which the Geometric Modulus Principle guarantees an a priori decrease. The map
-is not rational, which is why its polynomiographs are smooth rather than
-fractal.
-
-The **truncated** variant replaces `A` by `A_m = max_{j<=m} |p^(j)(z)|/j!`.
-Since `A_m <= A`, smaller `m` gives a longer step — aggressive, and no longer
-guaranteed, but testable. The fallback searches upward from `m = 0` and stops
-at the first `m` that decreases the modulus; `m = n` recovers the full
-guaranteed step, so the search always terminates. In practice `m <= 2` suffices
-in over 99.9% of fallback steps, and `A_0`, `A_1` reuse values Newton has
-already computed.
+| Function | Description |
+|---|---|
+| `solve_all_chn(coeffs, truncated=True)` | All `n` roots — recommended entry point |
+| `solve_chn(coeffs, z0)` | Single root from one starting point |
+| `rnm_step(coeffs, z)` | RNM increment, closed form |
+| `truncated_rnm_step(...)` | Adaptive truncated RNM (smallest `m` that descends) |
+| `solve_yuksel(coeffs, lo, hi)` | Baseline: real roots in an interval |
+| `solve_newton_deflation(coeffs)` | Ablation: Newton with no robust fallback |
+| `kalantari_bound(coeffs)` | Bound `U_2` on the modulus of the roots |
 
 ## Repository layout
 
 ```
-chn_solvers.py         the solvers; standard library only
-benchmark.py           timing and accuracy sweep, degrees 3-25
-experiments.py         robustness, stalling, basin rasters
-figures.py             publication figures (PDF + 300 DPI PNG)
-test_chn_solvers.py    correctness tests
-build_notebook.py      regenerates the notebook from source
-paper/main.tex         manuscript
-paper/refs.bib         bibliography
-data/                  benchmark output (JSON, NPZ)
-figures/               generated figures
+chn_solvers.py        solvers (standard library only)
+benchmark.py           timing/accuracy sweep, degrees 3-25
+experiments.py          robustness, stalling, basin rasters
+figures.py                publication figures (PDF + 300 DPI PNG)
+test_chn_solvers.py       correctness tests
+build_notebook.py          regenerates the notebook from source
+paper/                      manuscript + bibliography
+data/                        benchmark output (JSON, NPZ)
+figures/                      generated figures
 ```
 
-## Reproducibility
-
-Every random draw derives from the master seed `20260828`, set in
-`benchmark.py`. Timing is best-of-three wall clock per instance, reported as
-the median over 100 instances; absolute times depend on the machine, ratios do
-not.
+All random draws derive from the master seed `20260828` in `benchmark.py`. Timing is best-of-three wall clock per instance, reported as the median over 100 instances — absolute times depend on the machine, ratios do not.
 
 ## References
 
-- B. Kalantari. *Polynomial Root-Finding and Polynomiography*. World Scientific, 2008.
-- B. Kalantari. A geometric modulus principle for polynomials. *Amer. Math. Monthly* 118 (2011) 931–935.
-- B. Kalantari. An infinite family of bounds on zeros of analytic functions and relationship to Smale's bound. *Math. Comp.* 74 (2005) 841–852.
-- B. Kalantari. A globally convergent Newton method for polynomials. arXiv:2003.00372. Revised version forthcoming.
-- B. Kalantari. Invitation to polynomiography via ChatGPT. *LASER Journal* 3(1), Art. 3, 2025.
-- C. Yuksel. High-performance polynomial root finding for graphics. *Proc. ACM Comput. Graph. Interact. Tech.* 5(3), Art. 7, 2022.
+- B. Kalantari, *Polynomial Root-Finding and Polynomiography*, World Scientific, 2008.
+- B. Kalantari, "A geometric modulus principle for polynomials," *Amer. Math. Monthly* 118 (2011), 931–935.
+- C. Yuksel, "High-performance polynomial root finding for graphics," *Proc. ACM Comput. Graph. Interact. Tech.* 5(3), Art. 7, 2022.
 
 ## License
 
-MIT.
+[MIT](LICENSE)
